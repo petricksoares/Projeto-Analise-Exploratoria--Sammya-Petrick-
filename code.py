@@ -3,8 +3,16 @@ from google.colab import drive
 drive.mount('/content/drive')
 path = '/content/drive/MyDrive/trabalhoHeloísa/trabalho'
 
-# importando biblioteca Pandas
+# Bibliotecas que foram usadas
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import LabelEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
 
 # Carregando os três datasets
 order_items = pd.read_csv(path+'/olist_order_items_dataset.csv')
@@ -23,15 +31,16 @@ products = pd.read_csv(path+'/olist_products_dataset.csv')
 # Isso adiciona as informações completas dos produtos
 
 # Unindo os datasets em um só DataFrame
-df_completo = (order_items.merge(orders, on='order_id', how='left').merge(products, on='product_id', how='left'))    
-# Adiciona infos detalhadas dos produtos
-# Junta itens do pedido com infos do pedido
+df_completo = (order_items.merge(orders, on='order_id', how='left').merge(products, on='product_id', how='left'))
+ # Adiciona infos detalhadas dos produtos
+# Junta os itens do pedido com infos do pedido
 
-# Observando dataset
+# Analisando os dados 
 df_completo.info()
 # Visualizar as primeiras 5 linhas do dataset
 df_completo.head()
 df_completo.describe()
+
 # Exploração dos Dados
 # Dataset Olist unificado
 # Linhas: 112.650
@@ -48,7 +57,7 @@ df_completo.describe()
 # order_delivered_customer_date
 # order_estimated_delivery_date
 
-# 2. Valores Ausentes
+# Valores Ausentes
 # order_approved_at                  | 15
 # order_delivered_carrier_date       | 1.194
 # order_delivered_customer_date      | 2.454
@@ -62,32 +71,27 @@ df_completo.describe()
 # product_width_cm                   | 18
 
 # Convertendo as colunas que precisam estar como datetime64[ns]
-# Essas colunas estão como object e o pandas trata como strings, então elas precisam ser convertidas
-# Conversão da coluna 'shipping_limit_date'
+# Essas colunas tão como object e o pandas trata como strings, ai elas precisam ser convertidas
 df_completo['shipping_limit_date'] = df_completo['shipping_limit_date'].astype('datetime64[ns]')
 
-# Conversão da coluna 'order_purchase_timestamp'
 df_completo['order_purchase_timestamp'] = df_completo['order_purchase_timestamp'].astype('datetime64[ns]')
 
-# Conversão da coluna 'order_approved_at'
 df_completo['order_approved_at'] = df_completo['order_approved_at'].astype('datetime64[ns]')
 
-# Conversão da coluna 'order_delivered_carrier_date'
 df_completo['order_delivered_carrier_date'] = df_completo['order_delivered_carrier_date'].astype('datetime64[ns]')
 
-# Conversão da coluna 'order_delivered_customer_date'
 df_completo['order_delivered_customer_date'] = df_completo['order_delivered_customer_date'].astype('datetime64[ns]')
 
-# Conversão da coluna 'order_estimated_delivery_date'
 df_completo['order_estimated_delivery_date'] = df_completo['order_estimated_delivery_date'].astype('datetime64[ns]')
+
 df_completo.info()
 # verificando a conversão
 
-# Duas colunas tão com os nomes errados então nós corrigimos 
+# Duas colunas tão com os nomes errados então nós corrigimos
 df_completo = df_completo.rename(columns={
 'product_name_lenght': 'product_name_length',
 'product_description_lenght': 'product_description_length'})
-# Vendo se os nomes das colunas foram corrigidos 
+# Vendo se os nomes das colunas foram corrigidos
 df_completo.info()
 
 # LIMPEZA DE DADOS
@@ -95,11 +99,16 @@ df_completo.info()
 duplicadas = df_completo.duplicated().sum()
 duplicadas
 # Sem nenhuma duplicadas
+
 # linhas duplicadas
 df_completo[df_completo.duplicated()]
-# Sem linhas duplicadas
 
-# Alguma colunas não podem ter valores nulos ou 0, como a coluna de preço e peso entre outras. Então foi feita aqui a soma de valores nulos/0 dessas colunas
+plt.figure(figsize=(12,6))
+sns.heatmap(df_completo.isnull(), cbar=False, cmap='viridis')
+plt.title('Valores Ausentes - Antes do Tratamento')
+plt.show()
+
+# Alguma colunas não podem ter valores nulos ou 0, como a coluna de preço e peso e etc. Então a gnt fez aqui a soma de valores nulos/0 dessas colunas
 print("nulos ou zerados na coluna preco =", df_completo["price"].isnull().sum())
 print("nulos ou zerados na coluna frete =", df_completo["freight_value"].isnull().sum())
 print("nulos ou zerados na coluna peso =", df_completo["product_weight_g"].isnull().sum())
@@ -128,58 +137,19 @@ df_completo.info()
 # Categóricas: preencher com "sem_categoria"
 df_completo['product_category_name'] = df_completo['product_category_name'].fillna('sem_categoria')
 
-# Tratamento de valores ausentes
-# Preencher nulos com a media da coluna
-# order_approved_at → preencher com a data de compra (faz sentido)
-df_completo['order_approved_at'] = df_completo['order_approved_at'].fillna(df_completo['order_purchase_timestamp'])
-
-# order_delivered_carrier_date → preencher com a média real da coluna (não depende da categoria)
-media_carrier = df_completo['order_delivered_carrier_date'].median()
-df_completo['order_delivered_carrier_date'] = df_completo['order_delivered_carrier_date'].fillna(
-    media_carrier
-)
-
-# order_delivered_customer_date → preencher com a média real da coluna
-media_customer = df_completo['order_delivered_customer_date'].median()
-df_completo['order_delivered_customer_date'] = df_completo['order_delivered_customer_date'].fillna(
-    media_customer
-)
-
-# Primeiro, vamos ver o que fazer com a data de aprovação do pedido.
-# Muitos pedidos nulos nessa coluna são porque o pagamento não foi aprovado
-# ou a informação se perdeu.
-# Faz mais sentido preencher a data de aprovação com a própria data da compra.
-# Assim, assumimos que a aprovação foi quase instantânea.
-
-# A coluna de referência (o que vamos usar para preencher) é 'order_purchase_timestamp'.
+# Muitos valores nulos ocorrem por falta de aprovação do pedido
+# por isso, preenchermos 'order_approved_at' com a data da compra.
 coluna_data_compra = df_completo['order_purchase_timestamp']
-
-# Preenchemos a coluna de aprovação com a coluna de compra, só onde for nulo.
 df_completo['order_approved_at'] = df_completo['order_approved_at'].fillna(coluna_data_compra)
 
-# Agora, a data que o produto foi entregue para a transportadora.
-# Como é difícil chutar essa data, vamos usar um valor 'central' para não bagunçar
-# a análise dos tempos de entrega.
-# Usar a MEDIANA é mais seguro que a média, porque a mediana não é afetada
-# por entregas muito rápidas ou muito demoradas (os 'outliers').
-
-# 1. Calculamos o valor central (mediana) da coluna:
+# Para a data de entrega usamos a mediana,
 valor_mediano_entrega_transportadora = df_completo['order_delivered_carrier_date'].median()
-
-# 2. Preenchemos os valores nulos com esse valor central:
 df_completo['order_delivered_carrier_date'] = df_completo['order_delivered_carrier_date'].fillna(valor_mediano_entrega_transportadora)
 
-# Por fim, vamos preencher a data que o produto chegou na casa do cliente.
-# A lógica é a mesma da transportadora: vamos usar o valor MEDIANO
-# de todas as entregas já feitas.
-
-# 1. Calculamos o valor central (mediana) da coluna de entrega final:
+# Para a data de entrega ao cliente, aplicamos a mesma lógica:
+# preencher valores nulos com a mediana da coluna.
 valor_mediano_entrega_cliente = df_completo['order_delivered_customer_date'].median()
-
-# 2. Preenchemos os valores nulos com esse valor central que achamos:
-df_completo['order_delivered_customer_date'] = df_completo['order_delivered_customer_date'].fillna(
-    valor_mediano_entrega_cliente
-)
+df_completo['order_delivered_customer_date'] = df_completo['order_delivered_customer_date'].fillna(valor_mediano_entrega_cliente)
 df_completo.info()
 
 # Percebi que algumas colunas ainda estão com valores ausentes:
@@ -195,21 +165,26 @@ colunas_restantes = ['product_name_length', 'product_description_length', 'produ
 for coluna in colunas_restantes:
  mediana_global = df_completo[coluna].median()
  df_completo[coluna] = df_completo[coluna].fillna(mediana_global)
-df_completo.info()
+
+# Heatmap DEPOIS do tratamento
+df_antes = df_completo.copy()
+plt.figure(figsize=(12,6))
+sns.heatmap(df_completo.isnull(), cbar=False, cmap='viridis')
+plt.title('Valores Ausentes - Depois do Tratamento')
+plt.show()
 
 # Aqui eu pego só as colunas numéricas que fazem sentido pra procurar outliers.
 # Depois calculo o Z-score de cada uma, que basicamente diz o quão longe um valor está da média.
 # Se o Z-score passar de 3 (positivamente ou negativamente), eu marco como outlier.
 # No final, mostro quantos outliers cada coluna tem.
-import numpy as np
 colunas_numericas = ['price', 'freight_value','product_name_length', 'product_description_length', 'product_photos_qty',
 'product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm']
 
-# DataFrame só com z-scores
-z_scores = (df_completo[colunas_numericas] - df_completo[colunas_numericas].mean()) / df_completo[colunas_numericas].std()
+# dataframe só com z-scores
+tratamento_z = (df_completo[colunas_numericas] - df_completo[colunas_numericas].mean()) / df_completo[colunas_numericas].std()
 
 # Identificar outliers
-outliers_zscore = (np.abs(z_scores) > 3)
+outliers_zscore = (np.abs(tratamento_z) > 3)
 
 # Contagem por coluna
 print("Quantidade de outliers por Z-score:")
@@ -231,21 +206,17 @@ for col in colunas_numericas:
 
    # Substitui valores abaixo do limite inferior pelo limite inferior
    # e valores acima do limite superior pelo limite superior
-   df_completo[col] = np.where(df_completo[col] > limite_superior, limite_superior, df_completo[col]) 
+   df_completo[col] = np.where(df_completo[col] > limite_superior, limite_superior, df_completo[col])
    df_completo[col] = np.where(df_completo[col] < limite_inferior, limite_inferior, df_completo[col])
 
-import matplotlib.pyplot as plt
-
+# Supondo que colunas_numericas já está definida
 for col in colunas_numericas:
-  plt.figure(figsize=(6,3))
-  plt.boxplot(df_completo[col])
-  plt.title(f'Boxplot - {col}')
-  plt.show()
+    plt.figure(figsize=(6,3))
+    plt.boxplot(df_completo[col])
+    plt.title(f'Boxplot - {col}')  # Corrigido: fechando com aspas simples
+    plt.show()
 
-import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-
-# 1 Transformar categorias de produto em números
+# Transformar categorias de produto em números
 # Cada categoria de produto vai virar um número. Bem simples de entender.
 # Por exemplo: "cama_mesa_banho" → 0, "perfumaria" → 1, etc.
 le = LabelEncoder()
@@ -265,7 +236,7 @@ if 'order_status' in df_completo.columns:
 else:
     print("A coluna 'order_status' já foi processada ou não existe.")
 
-#  TRATAMENTO DOS DADOS CATEGÓRICOS E TEXTOS
+# tratamento dos dados categóricos e textos
 
 print("Colunas categóricas:")
 print(df_completo.select_dtypes(include=['object']).columns.tolist())
@@ -273,15 +244,11 @@ print(df_completo.select_dtypes(include=['object']).columns.tolist())
 print("\nValores únicos em product_category_name:")
 print(df_completo['product_category_name'].value_counts().head(10))
 
-# CODIFICAÇÃO DE DADOS CATEGÓRICOS
-
-from sklearn.preprocessing import LabelEncoder
-
+# codificação dos dados categoricos
 # Codificação Label Encoding para product_category_name
 le_categoria = LabelEncoder()
 df_completo['product_category_encoded'] = le_categoria.fit_transform(
-    df_completo['product_category_name'].fillna('sem_categoria')
-)
+df_completo['product_category_name'].fillna('sem_categoria'))
 
 # A coluna 'order_status' já foi processada por One-Hot Encoding em uma célula anterior (z9cv14cn3WIg).
 # A remoção do código abaixo evita o KeyError.
@@ -293,9 +260,6 @@ print(f"Categories encoded: {len(le_categoria.classes_)}")
 # print(f"Order status dummies: {order_status_dummies.columns.tolist()}") # Comentei para evitar erro, pois order_status_dummies não existe mais aqui.
 
 #  NORMALIZAÇÃO E PADRONIZAÇÃO
-
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-
 # Colunas para normalização
 colunas_numericas = ['price', 'freight_value', 'product_weight_g','product_length_cm', 'product_height_cm', 'product_width_cm']
 
@@ -314,12 +278,8 @@ df_completo[[f'{col}_minmax' for col in colunas_numericas]] = scaler_minmax.fit_
 print("Normalização e padronização concluídas")
 print(df_completo[[f'{colunas_numericas[0]}_zscore', f'{colunas_numericas[0]}_minmax']].describe())
 
-# SELEÇÃO DE ATRIBUTOS
-
+# seleção dos atributos
 # Análise de Correlação
-import seaborn as sns
-import matplotlib.pyplot as plt
-
 colunas_corr = ['price', 'freight_value', 'product_weight_g', 'product_length_cm','product_height_cm', 'product_width_cm', 'product_photos_qty']
 
 plt.figure(figsize=(10, 8))
@@ -329,22 +289,21 @@ plt.title('Matriz de Correlação - Atributos Numéricos')
 plt.tight_layout()
 plt.show()
 
-# Identificação de Baixa Variância
+# identificação de Baixa Variância
 variancias = df_completo[colunas_numericas].var()
 print("\nVariância dos atributos numéricos:")
 print(variancias.sort_values())
 
-# Filtros Simples - Remover colunas com variância muito baixa
+# remover colunas com variância muito baixa
 limite_variancia = 0.1
 colunas_baixa_variancia = variancias[variancias < limite_variancia].index.tolist()
 print(f"\nColunas com baixa variância (<{limite_variancia}): {colunas_baixa_variancia}")
 
-# Manter apenas colunas com variância adequada
+# manter apenas colunas com variância adequada
 colunas_selecionadas = [col for col in colunas_numericas if col not in colunas_baixa_variancia]
 print(f"Colunas selecionadas: {colunas_selecionadas}")
 
-# CRIAÇÃO DE NOVOS ATRIBUTOS (FEATURE ENGINEERING)
-
+# criação de novos atributos (FEATURE ENGINEERING 4 tecnicas pedidas)
 # Técnica 1: Feature de Tempo - Atraso na Entrega
 df_completo['atraso_entrega_horas'] = (
     df_completo['order_delivered_customer_date'] - df_completo['order_estimated_delivery_date']
@@ -373,39 +332,21 @@ print(f"- Proporção frete/preço média: {df_completo['proporcao_frete_preco']
 print(f"- Densidade média: {df_completo['densidade_g_cm3'].median():.3f} g/cm³")
 
 # PIPELINE COMPLETO DE PRÉ-PROCESSAMENTO
-
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-
-# Definir colunas para diferentes tratamentos
-numeric_features = ['price', 'freight_value', 'product_weight_g', 'product_length_cm']
+numeric_features = ['price','freight_value', 'product_weight_g','product_length_cm']
 categorical_features = ['product_category_name']
 
-# Criar transformers
-numeric_transformer = Pipeline(steps=[
-    ('imputer', SimpleImputer(strategy='median')),
-    ('scaler', StandardScaler())
-])
+# Pipelines de transformação
+numeric_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')),('scaler', StandardScaler())])
 
-categorical_transformer = Pipeline(steps=[
-    ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-    ('onehot', OneHotEncoder(handle_unknown='ignore'))
-])
+categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='constant', fill_value='missing')),('encoder', OneHotEncoder(handle_unknown='ignore'))])
 
-# Combinar transformers
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('num', numeric_transformer, numeric_features),
-        ('cat', categorical_transformer, categorical_features)
-    ])
+# Pipeline completo de pré-processamento
+preprocessor = ColumnTransformer(transformers=[('numeric', numeric_transformer, numeric_features),('categorical', categorical_transformer, categorical_features)])
 
-print("Pipeline de pré-processamento criado:")
+print("Pipeline de pré-processamento criado com sucesso:")
 print(preprocessor)
 
 # VISUALIZAÇÕES E GRÁFICOS EXPLICATIVOS
-
 # Visualização 1: Distribuição de Atrasos
 plt.figure(figsize=(15, 10))
 
@@ -452,8 +393,10 @@ plt.title('Relação: Peso vs Densidade')
 plt.tight_layout()
 plt.show()
 
-# RESPOSTA ÀS PERGUNTAS NORTEADORAS (4 de 6)=
-print("RESPOSTAS ÀS PERGUNTAS NORTEADORAS")
+# RESPOSTA ÀS PERGUNTAS NORTEADORAS
+
+print("RESPOSTAS AS PERGUNTAS NORTEADORAS")
+
 # Pergunta 1: Quais características mais se relacionam com atrasos de entrega?
 print("\n1. CARACTERÍSTICAS RELACIONADAS COM ATRASOS DE ENTREGA:")
 correlacao_atraso = df_completo.corr(numeric_only=True)['atraso_entrega_horas'].sort_values(ascending=False)
