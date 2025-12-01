@@ -54,5 +54,4 @@ Esses insights apontam que a otimização logística pode reduzir atrasos, a rev
 - *Petrick*
 ---
 
-*Desenvolvido por Sammya e Petrick*  
 Última atualização: Dezembro 2025
