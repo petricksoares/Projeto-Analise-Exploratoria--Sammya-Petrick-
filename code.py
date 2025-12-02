@@ -209,7 +209,7 @@ for col in colunas_numericas:
    df_completo[col] = np.where(df_completo[col] > limite_superior, limite_superior, df_completo[col])
    df_completo[col] = np.where(df_completo[col] < limite_inferior, limite_inferior, df_completo[col])
 
-# Supondo que colunas_numericas já está definida
+# boxplot de colunas_numericas
 for col in colunas_numericas:
     plt.figure(figsize=(6,3))
     plt.boxplot(df_completo[col])
